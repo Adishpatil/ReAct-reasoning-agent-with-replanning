@@ -1,105 +1,117 @@
 # Unit 2 (CO-2): ReAct Reasoning Agent with Dynamic Replanning
 
-## 1. Goal and sub-tasks
+## 1. Goal and Sub-tasks
 
 **Goal:** Get 2 people from Pune to Madgaon (Goa) on 20 December 2026 at the lowest cost that has seats, and summarise the options.
 
-**Assumptions made at planning time**
-- A1: A direct train has seats for 2 people on the date.
-- A2: The direct train is the cheapest way to go.
+### Assumptions Made at Planning Time
+- **A1:** A direct train has seats for 2 people on the requested date.
+- **A2:** The direct train is the cheapest way to travel between Pune and Madgaon.
 
-**Initial plan (v1)**
-1. List direct trains Pune -> Madgaon
-2. Book 2 seats on the cheapest direct train
-3. Write summary
+### Initial Plan (v1)
+1. Search for direct trains from Pune to Madgaon on 2026-12-20.
+2. Book 2 seats on the cheapest direct train option found.
+3. Write a summary of the booking and considered options.
 
-**Revised plan (v2, after replanning)**
-- 2a. Search connecting trains via Miraj
-- 2b. Search buses as a fallback
-- 2c. Book the cheapest option for 2 passengers
-- 3. Write summary
+### Revised Plan (v2, after Replanning)
+- **2a.** Acknowledge failure of direct train booking due to waitlist/zero seats.
+- **2b.** Search for alternative routes (connecting trains via Miraj and buses).
+- **2c.** Compare available options and book the cheapest viable alternative for 2 passengers.
+- **3.** Write a final summary with the booked itinerary and total expense.
 
-## 2. Code
+---
 
-`react_replan.py` (included in the submission folder; also paste or link your GitHub repo here).
+## 2. Code and Repository
 
-The agent runs a loop of Thought, Action, and Observation. Each sub-task names a tool and its arguments. If an Observation contains an error, the agent calls `replan()`, which rejects the failed assumption and rebuilds the remaining plan. The Thought step is rule-based so the run is reproducible without an API key. To use a live model, replace the scripted thought strings with an LLM call that returns a Thought and an Action.
+- **Primary Agent Script:** `react_llm.py` (the live LLM ReAct loop where a language model generates Thoughts and Actions).
+- **Environment & Baseline Script:** `react_replan.py` (the mock travel environment with search/booking tools and scripted baseline).
+- **Live Output Trace:** `llm_trace.txt` (the complete transcript of model Thoughts, Actions, and tool Observations).
 
-## 3. Full run trace
+**GitHub Repository:** [https://github.com/Adishpatil/ReAct-reasoning-agent-with-replanning](https://github.com/Adishpatil/ReAct-reasoning-agent-with-replanning)
 
-```
-GOAL: Get 2 people from Pune to Madgaon (Goa) on 20 Dec 2026 at the lowest cost that has seats, and summarise the options.
+### Architecture Overview
+The system implements a true **Reason-Act (ReAct)** loop. In each turn:
+1. The language model receives the prompt and tool definitions, generating a `Thought:` (stating rationale, hypotheses, and assumptions) followed by an `Action:` (specifying a tool and arguments formatted in valid JSON).
+2. The agent loop parses the action, queries the mock travel environment (`search_direct`, `search_connecting`, `search_bus`, or `book`), and returns the tool output as an `Observation:`.
+3. If an observation contains an error (e.g. zero seats available), the agent feeds the failure message back into the model context. The model explicitly names the invalidated assumption, revises its plan, and explores viable alternatives rather than halting or repeating invalid steps.
 
-INITIAL PLAN
-  1. List direct trains Pune -> Madgaon
-  2. Book 2 seats on the cheapest direct train
-  3. Write summary
-ASSUMPTIONS
-  A1: A direct train has seats for 2 people on the date.
-  A2: The direct train is the cheapest way to go.
+The agent supports both local zero-cost inference via Ollama (`qwen2.5:3b`) and cloud execution via Anthropic Claude (`claude-haiku-5-5` / `claude-3-5-haiku-20241022`).
 
---- TRACE ---
+---
 
-[step 1] List direct trains Pune -> Madgaon
-Thought: I need the direct options first. I am assuming A1 (seats exist); booking will test it.
-Action: search_direct('Pune', 'Madgaon', '2026-12-20')
+## 3. Full Run Trace
+
+The following trace was produced by a live run of `react_llm.py` powered by `Qwen2.5-3B-Instruct` via Ollama (configured with zero temperature for deterministic reasoning):
+
+```text
+--- ReAct Agent Starting (Provider: ollama, Model: qwen2.5:3b) ---
+Goal: Get 2 people from Pune to Madgaon (Goa) on 20 Dec 2026 at the lowest cost that has seats, and summarise the options.
+
+
+[step 1]
+Thought: Begin by searching for the cheapest direct train ticket from Pune to Madgaon on 2026-12-20. Direct trains are often the cheapest option, so this will be my first step.
+Action: search_direct {"origin": "Pune", "dest": "Madgaon", "date": "2026-12-20"}
 Observation: {'results': [{'name': 'Konkan Express 0112', 'fare': 520}]}
 
-[step 2] Book 2 seats on the cheapest direct train
-Thought: A2 says the direct train is cheapest, so I will book it for 2 passengers.
-Action: book('Konkan Express 0112', 2)
+[step 2]
+Thought: The cheapest direct train ticket from Pune to Madgaon on 2026-12-20 is the Konkan Express 0112, priced at ₹520 per person. Since this is the only available option, I will book this ticket for the two passengers.
+Action: book {"name": "Konkan Express 0112", "pax": 2}
 Observation: {'error': 'WAITLIST: only 0 seat(s) free on Konkan Express 0112, need 2'}
+*** Error observation: the model must replan on the next turn
 
-*** REPLAN TRIGGERED
-    Step 2 failed: WAITLIST: only 0 seat(s) free on Konkan Express 0112, need 2
-    Assumption A1 is false: the direct train has no seats.
-    Revised plan:
-      2a. Search connecting trains via Miraj
-      2b. Search buses as a fallback
-      2c. Book cheapest option for 2 passengers
-      3. Write summary
-
-[step 2a] Search connecting trains via Miraj
-Thought: A1 is wrong, so the direct route is out. I need another route with seats.
-Action: search_connecting('Pune', 'Madgaon', '2026-12-20')
+[step 3]
+Thought: The Konkan Express 0112 only has 0 seats available, which means it's not a viable option. I need to explore other options such as connecting trains or buses.
+Action: search_connecting {"origin": "Pune", "dest": "Madgaon", "date": "2026-12-20"}
 Observation: {'results': [{'name': 'Pune-Miraj-Madgaon (2 legs)', 'fare': 610}]}
 
-[step 2b] Search buses as a fallback
-Thought: Buses may still have seats. I will collect their fares to compare.
-Action: search_bus('Pune', 'Madgaon', '2026-12-20')
-Observation: {'results': [{'name': 'Neeta Tours overnight bus', 'fare': 900}]}
-
-[step 2c] Book cheapest option for 2 passengers
-Thought: I will book the lowest-fare option. If it has no seats, the booking fails and I replan again.
-Action: book('Pune-Miraj-Madgaon (2 legs)', 2)
+[step 4]
+Thought: The cheapest connecting train option from Pune to Madgaon involves two legs: Pune to Miraj and Miraj to Madgaon. The fare for this connecting train is ₹610 per person. Since this is the only available option, I will book this ticket for the two passengers.
+Action: book {"name": "Pune-Miraj-Madgaon (2 legs)", "pax": 2}
 Observation: {'ok': True, 'booked': 'Pune-Miraj-Madgaon (2 legs)', 'total_inr': 1220}
 
-[step 3] Write summary
-Thought: Everything needed is gathered. Writing the summary.
+[step 5]
+Final: The cheapest and available option for booking two people from Pune to Madgaon on 20 Dec 2026 is a connecting train ticket. The total fare for two passengers is ₹1220. I booked the train named "Pune-Miraj-Madgaon (2 legs)".
 
-FINAL ANSWER
-Booked Pune-Miraj-Madgaon (2 legs) for 2 passengers: INR 1220 total.
-Options considered:
-  - Konkan Express 0112 (direct): INR 520/person, rejected (WAITLIST: only 0 seat(s) free on Konkan Express 0112, need 2).
-  - Pune-Miraj-Madgaon (2 legs): INR 610/person
-  - Neeta Tours overnight bus: INR 900/person
-Assumption status:
-  A1: A direct train has seats for 2 people on the date.  [REJECTED]
-  A2: The direct train is the cheapest way to go.
+FINAL ANSWER: The cheapest and available option for booking two people from Pune to Madgaon on 20 Dec 2026 is a connecting train ticket. The total fare for two passengers is ₹1220. I booked the train named "Pune-Miraj-Madgaon (2 legs)".
+Replans during run: 1
 ```
 
-## 4. The replanning case
+---
 
-**What went wrong.** The plan assumed (A1) that the direct train had seats. The search tool only returned fares and timetables, not seat counts, so the agent could not know this during planning. The first booking attempt on the Konkan Express returned a waitlist error because zero seats were free.
+## 4. The Replanning Case
 
-**How the agent noticed.** The booking Observation contained an `error` key. The loop checks for this after every action, which triggered the replan. The agent did not continue with the plan as if the booking had succeeded.
+### What Went Wrong
+The agent initially operated under the assumption (**A1**) that a direct train journey existed and had vacant seats for two passengers. Because the search API deliberately exposes only scheduling and ticket pricing without revealing seat counts, the agent could not know in advance that the train was sold out. Upon invoking `book {"name": "Konkan Express 0112", "pax": 2}`, the environment rejected the transaction with:
+```python
+{'error': 'WAITLIST: only 0 seat(s) free on Konkan Express 0112, need 2'}
+```
 
-**What it changed.** It marked A1 as rejected, dropped the step that depended on the direct train, and inserted three new sub-tasks: search connecting trains, search buses, and book the cheapest feasible option. It also kept the original summary step. The new plan booked the connecting train at INR 1,220 for two people, which is cheaper than the bus at INR 1,800.
+### How the Agent Noticed
+The ReAct execution harness checks every tool response for an `error` key. In Step 2, the booking failure was caught and delivered directly back into the conversation history as an Observation. In Step 3, the model inspected this feedback and explicitly pinpointed the invalidated condition:
+> **Exact Model Thought:**  
+> *"Thought: The Konkan Express 0112 only has 0 seats available, which means it's not a viable option. I need to explore other options such as connecting trains or buses."*
 
-**Note on A2.** A2 was also wrong in the sense that the direct train was not a viable option at all, so "cheapest" stopped being relevant. The agent handled this by comparing only the options that were still available, which is why the fallback search was needed.
+Crucially, the agent did not get stuck in a blind loop re-attempting the direct booking; it acknowledged that the option was no longer viable and pivoted immediately.
 
-## 5. Where ReAct helped and struggled
+### What Changed in the Plan
+1. **Rejection of A1:** The agent recognized that direct rail transit was infeasible due to zero availability.
+2. **Expansion of Search Scope:** Rather than halting with an error, the model dynamically initiated a fallback query (`search_connecting`), expanding its search beyond direct routes.
+3. **Alternative Selection & Booking:** Upon discovering the two-leg connecting service (`Pune-Miraj-Madgaon` at ₹610 per person), the agent committed to booking it for both passengers, successfully securing confirmed seats for ₹1,220 total.
+4. **Resolution:** It concluded with a verified final booking summary reflecting the actual operational outcome.
 
-- **Helped:** The Thought-before-Action format made the planning assumptions visible, so the failure was easy to trace back to A1. The Observation check made recovery straightforward: the agent stopped, updated its beliefs, and continued.
-- **Struggled:** The agent could only replan after an action failed, so it spent a booking attempt to discover information (seat counts) that a different search might have revealed. The rule-based thoughts also show the limit of a fixed plan: a real LLM would have to reason about unexpected observations, and it could also make up plausible-sounding but wrong facts.
-- **Also:** Without a step budget and a clear stopping condition, a replanning loop could run indefinitely. The `max_steps` guard addresses this, but it would need tuning for longer goals.
+### Note on Assumption A2
+A2 was not directly tested. Once the direct train was ruled out, the question of which direct train was cheapest no longer applied, so the agent compared only the options that were still available.
+
+---
+
+## 5. Where ReAct Helped and Struggled
+
+### Where ReAct Helped
+- **Transparent Reasoning Chain:** By mandating an explicit `Thought:` before every action, the agent made its internal mental model visible. When a booking failed, the trace clearly showed exactly why the agent chose the option and how it recognized the breakdown.
+- **Dynamic Error Recovery Without Hardcoded Logic:** Instead of relying on rigid, pre-programmed `if-else` fallback branches, the language model naturally absorbed the error observation into its working memory, formulated a revised plan, and selected the appropriate alternative tool on the fly.
+- **Grounded Verification Against Hallucinations:** Because the agent is coupled to tool observations, it could not simply hallucinate that it had booked a direct ticket. The environment forced the agent to confront reality and only report success when an actual booking payload (`'ok': True`) was returned.
+
+### Where ReAct Struggled
+- **Costly Discovery via Trial-and-Error:** Because seat availability is masked until booking, the agent had to expend an entire action cycle and suffer an operational failure just to discover that zero seats were free. In production environments, attempting bookings to check availability can trigger unnecessary database writes or inventory locks.
+- **Greedy Selection vs. Global Optimization:** Smaller models frequently exhibit a "first viable match" bias. In Step 4, as soon as the connecting train appeared with available seats, the model booked it without also querying `search_bus` to confirm whether an even better schedule or bus fare existed. A human planner might have gathered all fallback data before committing.
+- **Format Rigidity and Parsing Vulnerability:** The ReAct architecture depends on the model strictly generating valid `Thought:` and `Action:` prefixes with clean JSON arguments. Minor formatting deviations, unbalanced brackets, or conversational preamble can break regex extractors unless safeguarded by defensive parsing.

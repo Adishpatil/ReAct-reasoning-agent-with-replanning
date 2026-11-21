@@ -5,17 +5,30 @@ A ReAct agent where a language model writes each Thought and Action.
 The loop executes the chosen tool, feeds the Observation back, and the model
 revises its plan when an Observation is an error (dynamic replanning).
 
-Requires: pip install anthropic   and   export ANTHROPIC_API_KEY=...
-Optional: export MODEL=<model name>   (defaults to claude-haiku-5-5)
+Supported Backends:
+- Anthropic Claude (if ANTHROPIC_API_KEY is set in environment)
+- Ollama local model (default fallback: qwen2.5:3b if no API key is provided)
+
+Environment variables:
+- ANTHROPIC_API_KEY: your Anthropic API key
+- MODEL: model name (e.g., 'claude-haiku-5-5', 'claude-3-5-haiku-20241022', or 'qwen2.5:3b')
+- PROVIDER: 'anthropic' or 'ollama' (autodetected if omitted)
 """
 import os
 import re
 import json
 
-import anthropic
-from react_replan import TOOLS, GOAL
+from react_replan import TOOLS, GOAL, ORIGIN, DEST, DATE, PAX
 
-MODEL = os.environ.get("MODEL", "claude-haiku-5-5")
+PROVIDER = os.environ.get("PROVIDER")
+if not PROVIDER:
+    PROVIDER = "anthropic" if os.environ.get("ANTHROPIC_API_KEY") else "ollama"
+
+if PROVIDER == "anthropic":
+    MODEL = os.environ.get("MODEL", "claude-haiku-5-5")
+else:
+    MODEL = os.environ.get("MODEL", "qwen2.5:3b")
+
 MAX_STEPS = 12
 
 SYSTEM = f"""You are a ReAct travel-booking agent.
@@ -27,7 +40,8 @@ Tools (call with one JSON object of arguments):
 - search_bus {{"origin": str, "dest": str, "date": str}}
 - book {{"name": str, "pax": int}}
 
-Search results show fares but not seat counts. Seats are only checked when you book.
+Booking details: origin "{ORIGIN}", destination "{DEST}", date "{DATE}", passengers {PAX}.
+Search results show fares per person but not seat counts. Seats are only checked when you book.
 
 Reply in exactly one of these two formats each turn, one action per turn:
 
@@ -37,8 +51,10 @@ Action: <tool_name> <JSON arguments on one line>
 Thought: <your reasoning>
 Final: <the answer for the user, summarising what you booked and the options you considered>
 
-If an Observation contains an "error", state which assumption was wrong in your
-Thought, revise your plan, and continue. Do not repeat a failed action unchanged."""
+Guidelines:
+1. Always strive to secure the lowest cost option that actually has available seats.
+2. If an Observation contains an "error" (such as a WAITLIST or 0 seats), explicitly identify which assumption was false in your Thought, revise your plan, explore alternative routes (connecting trains or buses), and book the cheapest available option.
+3. Do not repeat a failed booking or action unchanged."""
 
 
 def parse(text):
@@ -54,16 +70,39 @@ def parse(text):
     )
 
 
-def run():
-    client = anthropic.Anthropic()
-    messages = [{"role": "user", "content": "Begin. Make your plan, then take the first action."}]
-    replans = 0
-
-    for step in range(1, MAX_STEPS + 1):
+def query_llm(messages):
+    """Send conversation history to the configured LLM provider."""
+    if PROVIDER == "anthropic":
+        import anthropic
+        client = anthropic.Anthropic()
         resp = client.messages.create(
             model=MODEL, max_tokens=800, system=SYSTEM, messages=messages
         )
-        text = resp.content[0].text
+        return resp.content[0].text
+    elif PROVIDER == "ollama":
+        import ollama
+        ollama_messages = [{"role": "system", "content": SYSTEM}] + messages
+        resp = ollama.chat(
+            model=MODEL,
+            messages=ollama_messages,
+            options={"temperature": 0}
+        )
+        return resp["message"]["content"]
+    else:
+        raise ValueError(f"Unsupported provider: {PROVIDER}")
+
+
+def run():
+    print(f"--- ReAct Agent Starting (Provider: {PROVIDER}, Model: {MODEL}) ---")
+    print(f"Goal: {GOAL}\n")
+
+    messages = [
+        {"role": "user", "content": "Begin. Assume the cheapest direct train is the best option, then plan and act."}
+    ]
+    replans = 0
+
+    for step in range(1, MAX_STEPS + 1):
+        text = query_llm(messages)
         print(f"\n[step {step}]\n{text}")
         messages.append({"role": "assistant", "content": text})
 

@@ -23,7 +23,7 @@ FARE = {"Konkan Express 0112": 520,
         "Neeta Tours overnight bus": 900}
 
 def search_direct(origin, dest, date):
-    if (origin, dest, date) != (ORIGIN, DEST, DATE):
+    if origin != ORIGIN or dest not in (DEST, "Goa", "Madgaon (Goa)") or date != DATE:
         return {"error": "no timetable for this route/date"}
     return {"results": [{"name": "Konkan Express 0112", "fare": FARE["Konkan Express 0112"]}]}
 
